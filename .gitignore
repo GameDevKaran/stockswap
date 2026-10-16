@@ -1,0 +1,24 @@
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+# Dependencies and build output
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.next/
+dist/
+build/
+coverage/
+# Local data and scratch artifacts
+.local/
+tmp/
+*.log
+.DS_Store
+Thumbs.db
