@@ -20,6 +20,10 @@ Start with the behavior and boundaries in [Architecture](docs/architecture.md), 
 
 Keep credentials in local ignored files or the deployment secret store. Do not commit user data, provider tokens or private evaluation records.
 
+## Development approach
+
+The planned development approach is AI-assisted coding and ChatGPT-assisted research. This repository is a preparation foundation; implementation and application verification remain pending.
+
 ## License
 
 Original application code and these documents use the [MIT license](LICENSE). Future dependencies, models, datasets and media retain their own licenses and must be reviewed before inclusion.

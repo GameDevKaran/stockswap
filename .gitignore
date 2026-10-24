@@ -22,3 +22,13 @@ tmp/
 *.log
 .DS_Store
 Thumbs.db
+
+# Private submission and continuation workspace
+/devpost/
+/devpost-submissions/
+/submission-materials/
+/SKILL_PACK_PROVENANCE.md
+/CHECKPOINT.md
+# Additional private credential formats
+*.p12
+*.pfx
