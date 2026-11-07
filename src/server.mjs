@@ -17,7 +17,7 @@ async function body(req){let size=0;const chunks=[];for await(const chunk of req
 function send(res,status,value,extra={}){res.writeHead(status,{...headers,'Content-Type':'application/json; charset=utf-8',...extra});res.end(JSON.stringify(value));}
 function cookieIdentity(req){const c=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('stockswap='))?.slice(10);if(!c)return null;const match=/^([a-f0-9-]{36})\.([a-f0-9]{64})$/.exec(c);return match?{id:match[1],secret:match[2]}:null;}
 function sameHash(a,b){return typeof a==='string'&&a.length===64&&timingSafeEqual(Buffer.from(a,'hex'),Buffer.from(b,'hex'));}
-const terminal=s=>['captured','voided'].includes(s?.status);
+const terminal=s=>['captured','voided','expired'].includes(s?.status);
 export function createApp({store=new SqliteStore(),paypal=null,ai=new ProposalAI(),origin='http://127.0.0.1:8802',maxAiCalls=0}={}){
  if(!Number.isSafeInteger(maxAiCalls)||maxAiCalls<0||maxAiCalls>1000)throw Error('AI request allowance must be an integer from zero to 1000');
  const site=new URL(origin);if(site.username||site.password||site.pathname!=='/'||site.search||site.hash||!(site.protocol==='https:'||(site.protocol==='http:'&&['127.0.0.1','localhost'].includes(site.hostname))))throw Error('Invalid application origin');
@@ -30,8 +30,15 @@ export function createApp({store=new SqliteStore(),paypal=null,ai=new ProposalAI
  async function reconcile(record,pay,save){
   const state=record.state;if(!state.order?.orderId)throw error('ORDER_UNRESOLVED','The order response is unresolved. Retry creation with its stored request ID within five minutes, or review the Sandbox account.');
   const order=await pay.getOrder(state.order.orderId);record.providerReadback=order;
+  if(order.id!==state.order.orderId)throw error('ORDER_PROOF_MISMATCH','Provider returned a different order.');
   if(state.operation?.kind==='capture'){
-   const id=record.pendingCaptureId||order.captures.find(x=>x.authorizationId===state.authorization.authorizationId&&x.amountCents===state.operation.amountCents)?.id;
+   // Order summaries can omit related authorization IDs. Resolve each matching
+   // candidate through Payments GET, never infer the relationship from price.
+   let id=record.pendingCaptureId;
+   if(!id)for(const candidate of order.captures.filter(x=>x.amountCents===state.operation.amountCents&&x.currency===state.operation.currency)){
+    const found=await pay.getCapture(candidate.id);
+    if(found.authorizationId===state.authorization.authorizationId){if(id&&id!==found.id)throw error('MULTIPLE_CAPTURES','Multiple matching captures require merchant review.');id=found.id;}
+   }
    if(id){const proof=await pay.getCapture(id);if(proof.authorizationId!==state.authorization.authorizationId)throw error('CAPTURE_RELATION_UNVERIFIED','Capture relationship was not confirmed by the provider.');record.providerReadback=proof;record.state=d.confirmCapture(state,{operationId:state.operation.operationId,captureId:proof.id,authorizationId:proof.authorizationId,amountCents:proof.amountCents,currency:proof.currency,status:proof.status,now:now()});}
   }else if(state.operation?.kind==='void'){
    const proof=await pay.getAuthorization(state.authorization.authorizationId);record.providerReadback=proof;
@@ -41,6 +48,13 @@ export function createApp({store=new SqliteStore(),paypal=null,ai=new ProposalAI
     if(proof.status==='CREATED'&&proof.expirationTime)record.state=d.markAuthorised(state,{orderId:order.id,authorizationId:proof.id,amountCents:proof.amountCents,currency:proof.currency,validUntil:proof.expirationTime,status:'AUTHORIZED',now:now()});
    }
   }else if(!state.authorization){record.state=d.markOrderCreated(state,{orderId:order.id,approveUrl:order.approvalUrl,status:order.status,now:now()});}
+  else if(!terminal(state)){
+   const proof=await pay.getAuthorization(state.authorization.authorizationId);record.providerReadback=proof;
+   if(['VOIDED','EXPIRED'].includes(proof.status)){
+    if(order.captures.length)throw error('UNEXPECTED_CAPTURE','This order includes a capture outside the recorded workflow. Review it before starting another order.');
+    record.state=d.confirmClosedAuthorization(state,{authorizationId:proof.id,amountCents:proof.amountCents,currency:proof.currency,status:proof.status,now:now()});
+   }
+  }
   await save();if(record.state.authorization)await providerIndex(record.state.authorization.authorizationId,record.state.id);
  }
  async function mutation(path,input,record,pay,save){

@@ -29,6 +29,8 @@ Open http://127.0.0.1:8802. Local SQLite persists private sessions and test fixt
 
 Tests cover domain gates, HTTP workflows, persistence, payment transport and AI-output validation. Actual browser verification covers the local workflow, restart recovery, receipt read-back and export. Transport fixtures are not live integration evidence.
 
+Recovery checks cover a lost capture response, pending captures, signed-webhook transport fixtures, and stale GCS writes. A provider-confirmed expired or externally voided authorization can close an idle order; unresolved capture operations remain locked for reconciliation. A closed browser window alone never proves cancellation.
+
 Keep credentials in local ignored files or the deployment secret store. Do not commit user data, provider tokens or private evaluation records.
 
 ## Development approach

@@ -9,7 +9,7 @@ export class DomainError extends Error {
 }
 const fail = (code, message, status) => { throw new DomainError(code, message, status); };
 const copy = value => structuredClone(value);
-const terminal = state => ['captured', 'voided'].includes(state.status);
+const terminal = state => ['captured', 'voided', 'expired'].includes(state.status);
 const iso = value => {
   if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) fail('INVALID_TIME', 'A valid explicit timestamp is required.', 400);
   return new Date(value).toISOString();
@@ -229,4 +229,19 @@ export function confirmVoid(state, proof) {
   const next = event(state, 'void_readback', proof.now);
   next.operation.status = 'completed'; next.receipt = { kind: 'void', authorizationId: proof.authorizationId, confirmedAt: iso(proof.now) };
   next.status = 'voided'; return next;
+}
+
+/** Only a server-fetched final authorization state can release an idle order.
+ * An unresolved capture must be reconciled separately, even after expiry. */
+export function confirmClosedAuthorization(state, proof) {
+  checked(state);
+  if (state.operation || terminal(state)) fail('PAYMENT_IN_PROGRESS', 'Reconcile the existing operation before closing this authorization.');
+  if (!state.authorization || proof.authorizationId !== state.authorization.authorizationId ||
+      proof.amountCents !== state.authorization.amountCents || proof.currency !== state.authorization.currency ||
+      !['VOIDED', 'EXPIRED'].includes(proof.status)) fail('CLOSURE_PROOF_MISMATCH', 'Provider proof must match the exact closed authorization.');
+  const next = event(state, 'authorization_closed_readback', proof.now, { authorizationId: proof.authorizationId, status: proof.status });
+  next.consent = null;
+  next.status = proof.status === 'EXPIRED' ? 'expired' : 'voided';
+  next.receipt = {kind: next.status, authorizationId: proof.authorizationId, confirmedAt: iso(proof.now), source: 'provider_readback'};
+  return next;
 }

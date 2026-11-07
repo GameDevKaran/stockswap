@@ -1,7 +1,7 @@
 const $=id=>document.getElementById(id);
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format((cents||0)/100);
 let data={session:null,catalog:[],eligible:[],integration:{}},selected='HBR-C1',busy=false,proposalKey='';
-const terminal=s=>['captured','voided'].includes(s?.status);
+const terminal=s=>['captured','voided','expired'].includes(s?.status);
 function el(tag,text,className){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(className)n.className=className;return n;}
 function note(text,bad=false){$('notice').hidden=false;$('notice').textContent=text;$('notice').className='notice'+(bad?' warning':'');}
 function visible(id,yes){$(id).hidden=!yes;}
@@ -56,7 +56,7 @@ function render(){
  $('proposal-evidence').textContent=`Exact terms · ${p.currency} · authorization ${p.authorizationId} · inventory v${p.inventoryRevision} · proposal v${p.proposalVersion}`;
  $('consent-label').textContent=`I accept ${p.quantity} × ${p.name} (${p.sku}) for exactly ${money(p.amountCents)} ${p.currency}.`;
  visible('consent-box',!s.consent);visible('consent-recorded',!!s.consent);$('consent-detail').textContent=s.consent?`${money(s.consent.amountCents)} accepted at ${s.consent.acceptedAt}. Capture remains a separate action.`:'';}
- if(done)$('buyer-terminal').textContent=s.status==='captured'?`${mock?'Test-double':'Sandbox'} capture confirmed: ${money(s.receipt.amountCents)} for ${s.receipt.quantity} × ${s.receipt.sku}. ${s.receipt.captureId}.`:`${mock?'Test-double':'Sandbox'} authorization voided. No capture was recorded.`;
+ if(done)$('buyer-terminal').textContent=s.status==='captured'?`${mock?'Test-double':'Sandbox'} capture confirmed: ${money(s.receipt.amountCents)} for ${s.receipt.quantity} × ${s.receipt.sku}. ${s.receipt.captureId}.`:`${mock?'Test-double':'Sandbox'} authorization ${s.status}. No capture was recorded in this workflow. You can start a fresh buyer-approved order.`;
  $('ledger').replaceChildren();if(s){$('ledger').append(row('Session',s.id),row('Order',s.order?.orderId),row('Authorization',s.authorization?.authorizationId),row('Status',s.status),row('Authorization expires',s.authorization?.validUntil),row('Payment operation',s.operation?.status),row('Latest event',s.audit.at(-1)?.type));}else $('ledger').append(row('Session','Not started'));
  visible('readback-details',!!data.providerReadback);$('readback-json').textContent=data.providerReadback?JSON.stringify(data.providerReadback,null,2):'';visible('provider-proof',!!data.providerReadback);
  $('provider-proof').textContent=data.providerReadback?`${data.providerReadback.execution==='mock_paypal'?'Local fixture read-back':'PayPal Sandbox read-back'}: ${data.providerReadback.status}.`:'';visible('export',!!s);

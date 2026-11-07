@@ -1,7 +1,32 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {once} from 'node:events';
 import {createApp} from '../src/server.mjs';import {SqliteStore} from '../src/store.mjs';
+import {MockPayPal} from '../src/paypal.mjs';
 const origin='http://127.0.0.1:8802';
-async function harness(t,store=new SqliteStore(':memory:')){const server=createApp({store,origin});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close();});const base=`http://127.0.0.1:${server.address().port}`;let cookie='';return{store,server,base,setCookie:v=>cookie=v,getCookie:()=>cookie,call:async(path,value,extra={})=>{const r=await fetch(base+path,{method:value===undefined?'GET':'POST',headers:{cookie,...(value===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...extra},body:value===undefined?undefined:JSON.stringify(value)});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const text=await r.text();let json;try{json=JSON.parse(text);}catch{json={text};}return{status:r.status,...json};}};}
+async function harness(t,store=new SqliteStore(':memory:'),options={}){const server=createApp({store,origin,...options});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close();});const base=`http://127.0.0.1:${server.address().port}`;let cookie='';return{store,server,base,setCookie:v=>cookie=v,getCookie:()=>cookie,call:async(path,value,extra={})=>{const r=await fetch(base+path,{method:value===undefined?'GET':'POST',headers:{cookie,...(value===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...extra},body:value===undefined?undefined:JSON.stringify(value)});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const text=await r.text();let json;try{json=JSON.parse(text);}catch{json={text};}return{status:r.status,...json};}};}
+
+test('lost capture response recovers through authoritative GET without a second capture POST',async t=>{
+ class LostResponse extends MockPayPal {posts=0;async captureAuthorization(...args){this.posts++;await super.captureAuthorization(...args);throw Error('fixture lost response');}async getOrder(id){const o=await super.getOrder(id);for(const c of o.captures)c.authorizationId=null;return o;}}
+ const pay=new LostResponse(),h=await harness(t,undefined,{paypal:pay});await authorized(h);const p=await proposal(h);await ok(h,'/api/consent',consent(p.session));
+ let r=await h.call('/api/capture',{});assert.equal(r.status,502);assert.equal(r.session.status,'capture_uncertain');assert.equal(r.session.receipt,null);
+ r=await ok(h,'/api/capture',{});assert.equal(r.session.status,'captured');assert.equal(pay.posts,1);assert.equal(r.session.receipt.amountCents,1199);
+});
+test('pending capture never becomes a completed receipt until provider confirms it',async t=>{
+ class Pending extends MockPayPal {pending=true;posts=0;async captureAuthorization(...args){this.posts++;return super.captureAuthorization(...args);}async getCapture(id){const p=await super.getCapture(id);return this.pending?{...p,status:'PENDING'}:p;}}
+ const pay=new Pending(),h=await harness(t,undefined,{paypal:pay});await authorized(h);const p=await proposal(h);await ok(h,'/api/consent',consent(p.session));
+ let r=await h.call('/api/capture',{});assert.equal(r.status,409);assert.equal(r.session.receipt,null);assert.equal(r.session.status,'capture_uncertain');
+ pay.pending=false;r=await ok(h,'/api/reconcile',{});assert.equal(r.session.status,'captured');assert.equal(pay.posts,1);
+});
+test('provider-expired or externally voided authorization closes idle session, never an unresolved capture',async t=>{
+ class Closed extends MockPayPal {closed=null;async getAuthorization(id){const p=await super.getAuthorization(id);return this.closed?{...p,status:this.closed}:p;}}
+ for(const status of ['EXPIRED','VOIDED']){const pay=new Closed(),h=await harness(t,undefined,{paypal:pay});await authorized(h);pay.closed=status;
+ const r=await ok(h,'/api/reconcile',{});assert.equal(r.session.status,status.toLowerCase());assert.equal(r.session.receipt.source,'provider_readback');await ok(h,'/api/session/new',{originalSku:'HBR-C1'});}
+});
+test('verified webhook fixture reconciles once; unverified deliveries do not mutate records',async t=>{
+ class WebhookFixture extends MockPayPal {verified=false;async verifyWebhook(){return{verified:this.verified};}}
+ const pay=new WebhookFixture(),h=await harness(t,undefined,{paypal:pay});const a=await authorized(h);const event={id:'WH-FIXTURE1',event_type:'PAYMENT.AUTHORIZATION.VOIDED',resource:{id:a.session.authorization.authorizationId}};
+ assert.equal((await h.call('/api/webhook',event)).status,401);await pay.voidAuthorization(event.resource.id,{requestId:'external-fixture'});pay.verified=true;
+ let r=await ok(h,'/api/webhook',event);assert.equal(r.matched,true);r=await ok(h,'/api/session');assert.equal(r.session.status,'voided');assert.equal((await ok(h,'/api/webhook',event)).duplicate,true);
+});
 async function ok(h,path,value){const r=await h.call(path,value);assert.ok(r.status<300,`${path} ${r.status}: ${JSON.stringify(r.error)}`);return r;}
 async function authorized(h){await ok(h,'/api/session/new',{originalSku:'HBR-C1',quantity:1});await ok(h,'/api/order/create',{});return ok(h,'/api/order/authorize',{});}
 async function proposal(h){await ok(h,'/api/stock/change',{sku:'HBR-C1',stock:0});return ok(h,'/api/proposal',{preferences:'lower price, same performance'});}
