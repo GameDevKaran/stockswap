@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#152b28">
+  <title>StockSwap — a better replacement, with your say</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to workspace</a>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="StockSwap home"><span class="brand-mark" aria-hidden="true">↔</span>Stock<span>Swap</span></a>
+    <span class="workspace-label">THE CONSIDERED CHECKOUT</span>
+    <div class="top-actions"><span class="sandbox-badge">SANDBOX ONLY</span><button id="refresh" class="button quiet small" type="button">Refresh state</button></div>
+  </header>
+  <main id="workspace" class="shell">
+    <section class="intro" aria-labelledby="page-title">
+      <div><p class="eyebrow">SMALL STORE. THOUGHTFUL RECOVERY.</p><h1 id="page-title">Out of stock.<br><span>Still full of options.</span></h1><p class="intro-copy">Find a compatible alternative, let the buyer choose, then settle the exact agreed amount.</p></div>
+      <div class="promise-card"><span class="promise-symbol" aria-hidden="true">✓</span><p>One simple principle</p><strong>A suggestion is not consent.<br>Consent is not a charge.</strong><span>Every payment action stays explicit.</span></div>
+    </section>
+    <section class="integration-bar" aria-label="Integration status"><div><span class="status-dot" aria-hidden="true"></span><span id="paypal-mode">Checking payment connection…</span></div><div><span class="status-dot ai-dot" aria-hidden="true"></span><span id="ai-mode">Checking suggestion engine…</span></div><span id="verification-mode" class="muted">Reading server state</span></section>
+    <p class="role-note">Interactive demo workspace · You can operate both merchant and buyer panels here. These panels are not separate authenticated roles. All catalog products are fictional.</p>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <div id="uncertainty" class="notice warning" role="alert" hidden></div>
+    <ol class="steps" aria-label="Order progress"><li id="step-order"><span>1</span>Authorize</li><li id="step-proposal"><span>2</span>Find an alternative</li><li id="step-consent"><span>3</span>Buyer decides</li><li id="step-settle"><span>4</span>Read back</li></ol>
+    <div class="workspace-grid">
+      <section class="merchant-column" aria-labelledby="merchant-heading">
+        <div class="column-heading"><h2 id="merchant-heading">Merchant desk</h2><span class="role-tag">DEMO ROLE</span></div>
+        <article class="card order-card">
+          <div class="card-heading"><div><p class="eyebrow">01 / THE ORIGINAL ORDER</p><h3>Start with the buyer’s choice</h3></div><span id="order-status" class="state-pill">No order</span></div>
+          <form id="new-order-form">
+            <fieldset id="catalog-fieldset"><legend class="sr-only">Choose an original product</legend><div id="catalog" class="catalog-grid"><p class="muted">Loading the ten-product catalog…</p></div></fieldset>
+            <div class="order-form-footer"><label class="quantity-label" for="quantity">Quantity<input id="quantity" name="quantity" type="number" min="1" max="10" step="1" value="1" required></label><div class="selected-total"><span>Original order total</span><strong id="selection-total">—</strong></div><button id="start-order" class="button primary" type="submit">Start this order <span aria-hidden="true">↗</span></button></div>
+          </form>
+          <div id="order-summary" class="order-summary" hidden></div>
+          <div id="checkout-actions" class="action-area" hidden><p id="checkout-help" class="supporting"></p><div class="button-row"><button id="create-order" class="button primary" type="button">Create Sandbox checkout</button><a id="paypal-approval" class="button paypal" href="#" target="_blank" rel="noopener noreferrer" hidden>Approve at PayPal Sandbox <span aria-hidden="true">↗</span></a><button id="authorize-order" class="button secondary" type="button" hidden>Read approval & authorize</button></div><p id="approval-note" class="supporting" hidden>Use a PayPal Sandbox buyer account. After approving, return here and read the authorization. Approval alone does not capture payment.</p></div>
+        </article>
+        <article class="card">
+          <div class="card-heading"><div><p class="eyebrow">02 / INVENTORY EXCEPTION</p><h3>Something changed on the shelf</h3></div><span class="outline-icon" aria-hidden="true">↘</span></div>
+          <div id="inventory-empty" class="empty-inline">Authorize an order first, then simulate the original item becoming unavailable.</div>
+          <div id="inventory-controls" hidden><div class="stock-callout"><div><strong id="original-stock-name">Original item</strong><span id="original-stock">Stock unavailable</span></div><button id="mark-out" class="button secondary small" type="button">Mark original out of stock</button></div><details class="inventory-details"><summary>Adjust inventory for an edge case</summary><form id="stock-form" class="inline-form"><label for="stock-sku">Product<select id="stock-sku"></select></label><label for="stock-count">Units available<input id="stock-count" type="number" min="0" max="999" step="1" value="0" required></label><button id="update-stock" class="button secondary small" type="submit">Update stock</button></form><p class="supporting">Changing stock invalidates a previously agreed proposal. The buyer must review the new terms before capture.</p></details></div>
+        </article>
+        <article class="card">
+          <div class="card-heading"><div><p class="eyebrow">03 / CONSTRAINED SUGGESTION</p><h3>What would make a good swap?</h3></div><span class="outline-icon" aria-hidden="true">✧</span></div>
+          <form id="proposal-form"><label for="preferences">Buyer preferences</label><textarea id="preferences" rows="3" maxlength="1200" placeholder="For example: Keep the same connector and performance. A lower price is welcome.">Keep the same compatibility and performance. A lower price is welcome.</textarea><p class="supporting">Suggestions are checked against catalog compatibility, stock and the authorized amount. Missing preferences may need clarification.</p><button id="request-proposal" class="button primary" type="submit" disabled>Find a compatible replacement <span aria-hidden="true">→</span></button></form>
+          <div id="ai-response" class="ai-response" hidden></div>
+          <details id="eligibility-details" class="evidence-details"><summary>Compatibility & price checks <span id="candidate-count" class="count-badge">0</span></summary><div id="eligibility-list" class="eligibility-list"><p class="muted">Candidate checks will appear after authorization.</p></div></details>
+        </article>
+        <article class="card settlement-card">
+          <div class="card-heading"><div><p class="eyebrow">04 / MERCHANT SETTLEMENT</p><h3>One deliberate final action</h3></div></div>
+          <p id="settlement-help" class="supporting">Capture becomes available after the buyer consents to the exact replacement. Voiding releases an authorized order without capture.</p>
+          <div class="button-row"><button id="capture" class="button primary" type="button" disabled>Capture agreed amount</button><button id="void" class="button danger-outline" type="button" disabled>Void authorization</button><button id="reconcile" class="button secondary" type="button" disabled>Read provider state</button></div>
+          <p class="supporting">Sandbox money only. No shipping or fulfillment is triggered by this demo.</p>
+        </article>
+      </section>
+      <aside class="buyer-column" aria-labelledby="buyer-heading">
+        <div class="column-heading"><h2 id="buyer-heading">Buyer’s view</h2><span class="role-tag">DEMO ROLE</span></div>
+        <article class="card buyer-card">
+          <div class="buyer-brand"><span class="shop-mark" aria-hidden="true">h.</span><div><strong>Harbor Supply</strong><span>Thoughtful everyday accessories</span></div></div>
+          <div id="buyer-empty" class="buyer-empty"><div class="swap-illustration" aria-hidden="true"><span>↔</span></div><h3>Your order. Your decision.</h3><p>A replacement offer will appear here. You can inspect its details before agreeing to anything.</p></div>
+          <div id="buyer-proposal" hidden><p class="eyebrow">A REPLACEMENT TO CONSIDER</p><h3 id="proposal-name"></h3><p id="proposal-sku" class="sku"></p><div id="proposal-attributes" class="attribute-chips"></div><div class="price-comparison"><div><span>Original authorization</span><strong id="original-amount">—</strong></div><span aria-hidden="true">→</span><div><span>Proposed total</span><strong id="proposal-amount">—</strong></div></div><p id="price-saving" class="saving"></p><p id="proposal-reason" class="proposal-reason"></p><div id="proposal-evidence" class="proposal-evidence"></div><div id="consent-box" class="consent-box"><label class="check-label" for="buyer-consent"><input id="buyer-consent" type="checkbox"><span id="consent-label">I accept this exact replacement and total.</span></label><button id="accept-proposal" class="button primary full-width" type="button" disabled>Accept this replacement</button><p>Accepting records your choice. It does not capture payment.</p></div><div id="consent-recorded" class="consent-recorded" hidden><span aria-hidden="true">✓</span><div><strong>Your choice is recorded</strong><p id="consent-detail"></p></div></div></div>
+          <div id="buyer-terminal" class="terminal-panel" hidden></div>
+        </article>
+        <article class="card ledger-card"><div class="card-heading"><div><p class="eyebrow">THE RECEIPT TRAIL</p><h3>Facts, not assumptions</h3></div><span class="outline-icon" aria-hidden="true">≡</span></div><p id="ledger-intro" class="supporting">Provider identifiers and observed states appear as the order progresses.</p><dl id="ledger" class="ledger"><div><dt>Session</dt><dd>Not started</dd></div></dl><div id="provider-proof" class="provider-proof" hidden></div><details id="readback-details" hidden><summary>Inspect provider readback</summary><pre id="readback-json"></pre></details><a id="export" class="text-link" href="/api/export" download hidden>Export this order’s record <span aria-hidden="true">↓</span></a></article>
+        <div class="principle-note"><span aria-hidden="true">◈</span><p><strong>Compatibility before persuasion.</strong> A convincing explanation never overrides stock, price or payment constraints.</p></div>
+      </aside>
+    </div>
+    <footer><span>StockSwap · Purposeful substitutions, explicit decisions.</span><span>Fictional catalog · PayPal Sandbox or labelled local test mode</span></footer>
+  </main>
+</body>
+</html>
