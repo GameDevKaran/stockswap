@@ -6,6 +6,7 @@ import * as d from './domain.mjs';
 import {SqliteStore,GcsStore,serialQueue} from './store.mjs';
 import {SandboxPayPal,MockPayPal} from './paypal.mjs';
 import {ProposalAI} from './ai.mjs';
+import {operatorAccess} from './operator.mjs';
 
 const now=()=>new Date().toISOString();
 const hash=x=>createHash('sha256').update(x).digest('hex');
@@ -18,13 +19,14 @@ function send(res,status,value,extra={}){res.writeHead(status,{...headers,'Conte
 function cookieIdentity(req){const c=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('stockswap='))?.slice(10);if(!c)return null;const match=/^([a-f0-9-]{36})\.([a-f0-9]{64})$/.exec(c);return match?{id:match[1],secret:match[2]}:null;}
 function sameHash(a,b){return typeof a==='string'&&a.length===64&&timingSafeEqual(Buffer.from(a,'hex'),Buffer.from(b,'hex'));}
 const terminal=s=>['captured','voided','expired'].includes(s?.status);
-export function createApp({store=new SqliteStore(),paypal=null,ai=new ProposalAI(),origin='http://127.0.0.1:8802',maxAiCalls=0}={}){
+export function createApp({store=new SqliteStore(),paypal=null,ai=new ProposalAI(),origin='http://127.0.0.1:8802',maxAiCalls=0,operatorCode,requireOperatorCode=false}={}){
  if(!Number.isSafeInteger(maxAiCalls)||maxAiCalls<0||maxAiCalls>1000)throw Error('AI request allowance must be an integer from zero to 1000');
  const site=new URL(origin);if(site.username||site.password||site.pathname!=='/'||site.search||site.hash||!(site.protocol==='https:'||(site.protocol==='http:'&&['127.0.0.1','localhost'].includes(site.hostname))))throw Error('Invalid application origin');
  origin=site.origin;const queue=serialQueue();const rate=new Map();
+ const access=operatorAccess({required:ai.mode==='live'||requireOperatorCode,code:operatorCode,origin});
  const getPay=record=>paypal||new MockPayPal(record.mockProvider);
- const view=record=>{let options=[];try{if(record?.state.authorization)options=d.replacementOptions(record.state,{now:now()});}catch{}
-  return{session:record?.state||null,catalog:d.CATALOG,integration:{paypal:paypal?.execution||'mock_paypal',ai:ai.execution,liveVerified:false},eligible:options,providerReadback:record?.providerReadback||null,aiProposal:record?.aiProposal||null,approvalUrl:record?.state.order?.approveUrl||null};};
+ const view=(record,operatorRequired=false)=>{let options=[];try{if(record?.state.authorization)options=d.replacementOptions(record.state,{now:now()});}catch{}
+  return{session:record?.state||null,catalog:d.CATALOG,integration:{paypal:paypal?.execution||'mock_paypal',ai:ai.execution,liveVerified:false,operatorRequired},eligible:options,providerReadback:record?.providerReadback||null,aiProposal:record?.aiProposal||null,approvalUrl:record?.state.order?.approveUrl||null};};
  async function load(identity){if(!identity)return null;const row=await store.read(identity.id);if(!row||!sameHash(row.value.authHash,hash(identity.secret)))throw error('SESSION_NOT_FOUND','This private session is unavailable. Start a new session.',401);return row;}
  async function providerIndex(id,sessionId){if(!id)return;const key='provider_'+hash(id);const row=await store.read(key);if(row&&row.value.sessionId!==sessionId)throw error('PROVIDER_CONFLICT','Provider identifier already belongs to a different session.');if(!row)await store.write(key,{sessionId});}
  async function reconcile(record,pay,save){
@@ -113,6 +115,7 @@ export function createApp({store=new SqliteStore(),paypal=null,ai=new ProposalAI
  }
  const server=http.createServer(async(req,res)=>{
   let identity=cookieIdentity(req);let record=null;
+  const operatorRequired=ai.mode==='live'&&!access.allowed(req);
   try{
    const url=new URL(req.url,origin),path=url.pathname;
    if(req.method==='GET'&&path==='/health'){send(res,200,{ok:true,app:'StockSwap',mode:paypal?'sandbox':'mock'});return;}
@@ -128,23 +131,31 @@ export function createApp({store=new SqliteStore(),paypal=null,ai=new ProposalAI
      await store.write(key,{eventId:event.id,eventType:event.event_type,processedAt:now(),matched:!!link});send(res,200,{accepted:true,matched:!!link});
     });return;
    }
-   if(req.method==='GET'&&(path==='/api/session'||path==='/api/export')){const row=await load(identity);record=row?.value;if(path==='/api/export'){if(!record)throw error('NO_SESSION','Start a session first.',401);send(res,200,{...view(record),exportedAt:now()},{'Content-Disposition':'attachment; filename="stockswap-record.json"'});}else send(res,200,view(record));return;}
+   if(req.method==='GET'&&(path==='/api/session'||path==='/api/export')){const row=await load(identity);record=row?.value;if(path==='/api/export'){if(!record)throw error('NO_SESSION','Start a session first.',401);send(res,200,{...view(record,operatorRequired),exportedAt:now()},{'Content-Disposition':'attachment; filename="stockswap-record.json"'});}else send(res,200,view(record,operatorRequired));return;}
    if(req.method!=='POST'||!path.startsWith('/api/'))throw error('NOT_FOUND','Not found',404);
    if(req.headers.origin!==origin||!String(req.headers['content-type']||'').startsWith('application/json'))throw error('ORIGIN_REQUIRED','Use the same-origin application to perform this action.',403);
    const input=await body(req);
    const rateKey=identity?.id||req.socket.remoteAddress||'local';const minute=Math.floor(Date.now()/60000);if(rate.size>2000)rate.clear();const prior=rate.get(rateKey);const count=prior?.minute===minute?prior.count+1:1;rate.set(rateKey,{minute,count});if(count>40)throw error('RATE_LIMIT','Too many actions. Wait a minute before retrying.',429);
+   if(path==='/api/operator/login'){
+    record=(await load(identity))?.value;
+    const cookie=access.unlock(input.accessCode);if(!cookie)throw error('OPERATOR_REQUIRED','The operator access code was not accepted.',401);
+    send(res,200,view(record,false),{'Set-Cookie':cookie});return;
+   }
    await queue(identity?.id||rateKey,async()=>{
-    let row=await load(identity);record=row?.value;
+    let row;
+    try{row=await load(identity);}catch(e){if(path!=='/api/session/new'||e.code!=='SESSION_NOT_FOUND')throw e;}
+    record=row?.value;
     if(path==='/api/session/new'){
      if(record?.state.order&&!terminal(record.state))throw error('UNSETTLED_ORDER','Finish or reconcile the existing order before starting another session.');
      const id=randomUUID(),secret=randomBytes(32).toString('hex');record={state:d.createSession({id,originalSku:input.originalSku,quantity:input.quantity??1,now:now()}),authHash:hash(secret),createdAt:now(),providerReadback:null,aiProposal:null};
-     await store.write(id,record);send(res,201,view(record),{'Set-Cookie':`stockswap=${id}.${secret}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800${site.protocol==='https:'?'; Secure':''}`});return;
+     await store.write(id,record);send(res,201,view(record,operatorRequired),{'Set-Cookie':`stockswap=${id}.${secret}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800${site.protocol==='https:'?'; Secure':''}`});return;
     }
     if(!record)throw error('NO_SESSION','Start an order first.',401);
+    if(path==='/api/proposal'&&operatorRequired)throw error('OPERATOR_REQUIRED','Unlock live AI suggestions with the private operator code first.',401);
     const pay=getPay(record);let version=row.version;const save=async()=>{if(pay.execution==='mock_paypal')record.mockProvider=pay.exportState();version=await store.write(record.state.id,record,version);};
-    await mutation(path,input,record,pay,save);send(res,200,view(record));
+    await mutation(path,input,record,pay,save);send(res,200,view(record,operatorRequired));
    });
-  }catch(e){const status=Number.isInteger(e.httpStatus)?e.httpStatus:502;send(res,status,{...view(record),error:{code:e.code||'REQUEST_FAILED',message:e.code?e.message:'The operation could not be completed. Stored payment outcomes require read-back before retrying.'}});}
+  }catch(e){const status=Number.isInteger(e.httpStatus)?e.httpStatus:502;send(res,status,{...view(record,operatorRequired),error:{code:e.code||'REQUEST_FAILED',message:e.code?e.message:'The operation could not be completed. Stored payment outcomes require read-back before retrying.'}});}
  });
  server.requestTimeout=30000;server.headersTimeout=10000;return server;
 }
@@ -156,5 +167,5 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const ai=new ProposalAI({mode:env.STOCKSWAP_AI_MODE||'mock',baseUrl:env.STOCKSWAP_AI_BASE_URL,apiKey:env.STOCKSWAP_AI_API_KEY,model:env.STOCKSWAP_AI_MODEL,approvalReference:env.STOCKSWAP_AI_APPROVAL,expiresAt:env.STOCKSWAP_AI_EXPIRES_AT});
  const port=Number(env.PORT||8802),origin=env.STOCKSWAP_ORIGIN||`http://127.0.0.1:${port}`;
  if(env.K_SERVICE&&(mode!=='sandbox'||env.STOCKSWAP_STORE!=='gcs'||!env.STOCKSWAP_ORIGIN?.startsWith('https://')))throw Error('Cloud deployment requires Sandbox mode, isolated GCS persistence and explicit HTTPS origin');
- const app=createApp({store,paypal,ai,origin,maxAiCalls:Number(env.STOCKSWAP_AI_MAX_CALLS||0)});app.listen(port,env.K_SERVICE?'0.0.0.0':'127.0.0.1',()=>console.log(`StockSwap ${mode} at ${origin}`));
+ const app=createApp({store,paypal,ai,origin,maxAiCalls:Number(env.STOCKSWAP_AI_MAX_CALLS||0),operatorCode:env.STOCKSWAP_OPERATOR_CODE,requireOperatorCode:Boolean(env.K_SERVICE)});app.listen(port,env.K_SERVICE?'0.0.0.0':'127.0.0.1',()=>console.log(`StockSwap ${mode} at ${origin}`));
 }

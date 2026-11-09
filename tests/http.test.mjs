@@ -35,3 +35,15 @@ test('complete local authorization, incompatible exclusion, exact consent, captu
 test('stock revision removes consent and blocks stale capture, explicit void closes a separate fixture',async t=>{const h=await harness(t);await authorized(h);let r=await proposal(h);await ok(h,'/api/consent',consent(r.session));r=await ok(h,'/api/stock/change',{sku:'REEF-C1',stock:0});assert.equal(r.session.consent,null);assert.equal((await h.call('/api/capture',{})).status,409);r=await ok(h,'/api/void',{});assert.equal(r.session.status,'voided');assert.equal(r.providerReadback.status,'VOIDED');await ok(h,'/api/session/new',{originalSku:'CHARGE-C20',quantity:1});});
 test('local provider fixture and private session survive service recreation',async t=>{const store=new SqliteStore(':memory:');const h=await harness(t,store);await authorized(h);const cookie=h.getCookie();const other=await harness(t,store);other.setCookie(cookie);const r=await ok(other,'/api/reconcile',{});assert.equal(r.session.status,'authorised');const p=await proposal(other);await ok(other,'/api/consent',consent(p.session));assert.equal((await ok(other,'/api/capture',{})).session.status,'captured');});
 test('session ownership, CSRF, private file exposure, unsigned webhook and unsettled replacement are rejected',async t=>{const h=await harness(t);await authorized(h);assert.equal((await h.call('/api/session/new',{originalSku:'HBR-C1'})).status,409);assert.equal((await h.call('/api/void',{}, {Origin:'https://attacker.example'})).status,403);assert.equal((await h.call('/.env')).status,404);assert.equal((await h.call('/src/server.mjs')).status,404);assert.equal((await h.call('/api/webhook',{id:'forged'})).status,503);h.setCookie(h.getCookie().replace(/.$/,'z'));assert.equal((await h.call('/api/session')).session,null);});
+test('explicit new session recovers only an unavailable cookie and preserves reachable unsettled orders',async t=>{
+ const first=await harness(t);await authorized(first);const oldCookie=first.getCookie();
+ const fresh=await harness(t);fresh.setCookie(oldCookie);
+ assert.equal((await fresh.call('/api/session')).error.code,'SESSION_NOT_FOUND');
+ assert.equal((await fresh.call('/api/void',{})).error.code,'SESSION_NOT_FOUND');
+ const recovered=await ok(fresh,'/api/session/new',{originalSku:'HBR-C1',quantity:1});assert.equal(recovered.session.status,'created');assert.notEqual(fresh.getCookie(),oldCookie);
+ await ok(fresh,'/api/order/create',{});assert.equal((await fresh.call('/api/session/new',{originalSku:'HBR-C1'})).error.code,'UNSETTLED_ORDER');
+ assert.equal((await first.call('/api/session/new',{originalSku:'HBR-C1'})).error.code,'UNSETTLED_ORDER');
+ const reachable=await ok(first,'/api/session'),mismatch=await harness(t,first.store);mismatch.setCookie(oldCookie.replace(/.$/,oldCookie.endsWith('a')?'b':'a'));
+ assert.equal((await mismatch.call('/api/session')).error.code,'SESSION_NOT_FOUND');await ok(mismatch,'/api/session/new',{originalSku:'HBR-C1'});
+ assert.equal((await ok(first,'/api/session')).session.id,reachable.session.id);assert.equal((await ok(first,'/api/session')).session.status,'authorised');
+});

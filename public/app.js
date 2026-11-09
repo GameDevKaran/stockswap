@@ -16,7 +16,8 @@ function controls(){
  $('authorize-order').disabled=busy||auth||!!s?.order?.authorizationOperation;
  $('mark-out').disabled=busy||done||pending||original?.stock===0;
  $('update-stock').disabled=busy||done||pending;
- $('request-proposal').disabled=busy||done||pending||!exception;
+ $('request-proposal').disabled=busy||done||pending||!exception||data.integration.operatorRequired;
+ $('operator-code').disabled=busy;$('operator-login').disabled=busy;
  $('buyer-consent').disabled=busy||done||pending||!!s?.consent;
  $('accept-proposal').disabled=busy||done||pending||!s?.proposal||!!s?.consent||!$('buyer-consent').checked;
  $('capture').disabled=busy||done||pending||!s?.consent;
@@ -26,6 +27,7 @@ function controls(){
 }
 function render(){
  const s=data.session,done=terminal(s),mock=data.integration.paypal==='mock_paypal';
+ visible('operator-gate',!!data.integration.operatorRequired);
  $('paypal-mode').textContent=mock?'LOCAL PAYMENT TEST DOUBLE':'PAYPAL SANDBOX · NO REAL MONEY';
  $('ai-mode').textContent=data.integration.ai==='local_test_double'?'LOCAL SUGGESTION TEST DOUBLE':'AI PROVIDER CONFIGURED';
  $('verification-mode').textContent=mock?'Simulated provider outcomes':data.integration.liveVerified?'Live checks recorded':'Live verification pending';
@@ -72,6 +74,7 @@ for(const [id,path] of [['refresh','/api/session'],['create-order','/api/order/c
 $('mark-out').addEventListener('click',()=>request('/api/stock/change',{sku:data.session.original.sku,stock:0}));
 $('stock-form').addEventListener('submit',e=>{e.preventDefault();request('/api/stock/change',{sku:$('stock-sku').value,stock:Number($('stock-count').value)});});
 $('proposal-form').addEventListener('submit',e=>{e.preventDefault();request('/api/proposal',{preferences:$('preferences').value});});
+$('operator-login-form').addEventListener('submit',async e=>{e.preventDefault();const accessCode=$('operator-code').value;$('operator-code').value='';const result=await request('/api/operator/login',{accessCode});if(result)note('Live AI suggestions unlocked for one hour. The approved request limit still applies.');});
 $('buyer-consent').addEventListener('change',controls);
 $('accept-proposal').addEventListener('click',()=>{if(!$('buyer-consent').checked||!data.session?.proposal)return;const p=data.session.proposal;request('/api/consent',Object.fromEntries(['sku','quantity','amountCents','currency','authorizationId','inventoryRevision','proposalVersion'].map(k=>[k,p[k]])));});
 request('/api/session');
