@@ -30,7 +30,7 @@ function render(){
  visible('operator-gate',!!data.integration.operatorRequired);
  $('paypal-mode').textContent=mock?'LOCAL PAYMENT TEST DOUBLE':'PAYPAL SANDBOX · NO REAL MONEY';
  $('ai-mode').textContent=data.integration.ai==='local_test_double'?'LOCAL SUGGESTION TEST DOUBLE':'AI PROVIDER CONFIGURED';
- $('verification-mode').textContent=mock?'Simulated provider outcomes':data.integration.liveVerified?'Live checks recorded':'Live verification pending';
+ $('verification-mode').textContent=mock?'Simulated provider outcomes':data.providerReadback?'Provider read-back available':'Awaiting first provider read-back';
  $('catalog').replaceChildren();
  for(const p of data.catalog){const label=el('label',undefined,'product-option');const radio=document.createElement('input');radio.type='radio';radio.name='originalSku';radio.value=p.sku;radio.checked=p.sku===selected;radio.disabled=p.stock<1;
   radio.addEventListener('change',()=>{selected=p.sku;total();});const top=el('span',undefined,'product-top');top.append(radio,el('span',p.kind,'product-kind'),el('span',money(p.unitAmountCents),'product-price'));

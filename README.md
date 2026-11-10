@@ -4,7 +4,9 @@ A buyer-approved replacement for an out-of-stock accessory, before payment captu
 
 ## Status
 
-The local application is implemented and browser-verified. Its default PayPal and AI modes are clearly labeled test doubles. Live Sandbox transactions, real model inference, provider webhooks and public deployment remain pending configuration and release verification.
+Public application: https://stockswap-kc4mxxrtbq-uc.a.run.app. The deployed application uses PayPal Sandbox, a server-side Qwen model and isolated Google Cloud Storage persistence. Live browser checks verified authorization, an AI-proposed compatible replacement, explicit consent, exact $11.99 capture with authoritative PayPal read-back, and a separate authorization void. Genuine signed PayPal order, authorization and capture notifications reached the application. These are fictional Sandbox transactions, not real payments.
+
+Live AI requests require an owner-provided operator code and remain subject to a bounded testing allowance. No credentials belong in this repository. The default local PayPal and AI modes remain clearly labeled test doubles.
 
 ## Intended use
 
